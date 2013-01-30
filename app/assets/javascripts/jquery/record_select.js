@@ -124,7 +124,7 @@ if (typeof(jQuery.fn.delayedObserver) === 'undefined') {
 
 jQuery(document).ready(function() {
   RecordSelect.document_loaded = true;
-  jQuery('div.record-select * li.record a').live('ajax:before', function(event) {
+  jQuery(document).on('ajax:before', 'div.record-select * li.record a', function(event) {
     var link = jQuery(this);
     if (link) {
       if (RecordSelect.notify(link) == false) {
@@ -219,10 +219,11 @@ RecordSelect.Abstract = Class.extend({
   open: function() {
     if (this.is_open()) return;
     var _this = this;
+    $.rails.fire(_this.obj, 'rs:before');
     jQuery.ajax({
       url: this.url,
       //type: "POST",
-      //data: options['params'],
+      data: _this.obj.data('params'),
       //dataType: options.ajax_data_type,
       success: function(data){
         _this.container.html(data);
@@ -507,7 +508,7 @@ RecordSelect.Multiple = RecordSelect.Abstract.extend({
 
     // decide where the <li> entries should be placed
     if (this.options.list) this.list_container = jQuery(this.options.list);
-    else this.list_container = this.obj.next('ul');
+    else this.list_container = this.obj.siblings('ul');
 
     // take the input name from the text input, and store it for this.add()
     this.input_name = this.obj.attr('name');
