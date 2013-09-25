@@ -61,7 +61,7 @@ if (typeof(Class) === 'undefined') {
       return Class;
     };
   })();
-};
+}
 
 /*
  jQuery delayed observer
@@ -72,55 +72,32 @@ if (typeof(Class) === 'undefined') {
  Slight modifications by Elliot Winkler
 */
 
-if (typeof(jQuery.fn.delayedObserver) === 'undefined') { 
-  (function() {
-    var delayedObserverStack = [];
-    var observed;
-   
-    function delayedObserverCallback(stackPos) {
-      observed = delayedObserverStack[stackPos];
-      if (observed.timer) clearTimeout(observed.timer);
-     
-      observed.timer = setTimeout(function(){
-        observed.timer = null;
-        observed.callback(observed.obj.val(), observed.obj);
-      }, observed.delay * 1000);
-  
-      observed.oldVal = observed.obj.val();
-    } 
-    
-    // going by
-    // <http://www.cambiaresearch.com/c4/702b8cd1-e5b0-42e6-83ac-25f0306e3e25/Javascript-Char-Codes-Key-Codes.aspx>
-    // I think these codes only work when using keyup or keydown
-    function isNonPrintableKey(event) {
-      var code = event.keyCode;
-      return (
-        event.metaKey ||
-        (code >= 9 || code <= 16) || (code >= 27 && code <= 40) || (code >= 91 && code <= 93) || (code >= 112 && code <= 145)
-      );
-    }
-   
-    jQuery.fn.extend({
-      delayedObserver:function(delay, callback){
-        $this = jQuery(this);
-       
-        delayedObserverStack.push({
-          obj: $this, timer: null, delay: delay,
-          oldVal: $this.val(), callback: callback
-        });
-         
-        stackPos = delayedObserverStack.length-1;
-       
-        $this.keyup(function(event) {
-          if (isNonPrintableKey(event)) return;
-          observed = delayedObserverStack[stackPos];
-            if (observed.obj.val() == observed.obj.oldVal) return;
-            else delayedObserverCallback(stackPos);
+if (typeof(jQuery.fn.delayedObserver) === 'undefined') {
+  (function($){
+    $.extend($.fn, {
+      delayedObserver: function(callback, delay, options){
+        return this.each(function(){
+          var el = $(this);
+          var op = options || {};
+          el.data('oldval', el.val())
+            .data('delay', delay || 0.5)
+            .data('condition', op.condition || function() { return ($(this).data('oldval') == $(this).val()); })
+            .data('callback', callback)
+            [(op.event||'keyup')](function(){
+              if (el.data('condition').apply(el)) { return; }
+              else {
+                if (el.data('timer')) { clearTimeout(el.data('timer')); }
+                el.data('timer', setTimeout(function(){
+                  el.data('callback').apply(el);
+                }, el.data('delay') * 1000));
+                el.data('oldval', el.val());
+              }
+            });
         });
       }
     });
-  })();
-};
+  })(jQuery);
+}
 
 jQuery(document).ready(function() {
   RecordSelect.document_loaded = true;
@@ -136,20 +113,6 @@ jQuery(document).ready(function() {
     return true;
   });
 });
-
-/**
-Form.Element.AfterActivity = function(element, callback, delay) {
-  element = jQuery(element);
-  if (!delay) delay = 0.25;
-  new Form.Element.Observer(element, delay, function(element, value) {
-    // TODO: display loading indicator
-    if (element.activity_timer) clearTimeout(element.activity_timer);
-    element.activity_timer = setTimeout(function() {
-      callback(element.value);
-    }, delay * 1000 + 50);
-  });
-}
-*/
 
 var RecordSelect = new Object();
 RecordSelect.document_loaded = false;
@@ -170,6 +133,13 @@ RecordSelect.notify = function(item) {
     return false;
   }
   else return true;
+}
+
+RecordSelect.observe = function(id) {
+  var form = jQuery("#" + id);
+  form.find('input.text-input').delayedObserver(function() {
+    if (form.closest('body').length) form.trigger("submit");
+  }, 0.35);
 }
 
 RecordSelect.render_page = function(record_select_id, page) {
@@ -220,6 +190,8 @@ RecordSelect.Abstract = Class.extend({
     if (this.is_open()) return;
     var _this = this;
     jQuery.rails.fire(_this.obj, 'rs:before');
+    _this.container.html('');
+    _this.container.show();
     jQuery.ajax({
       url: this.url,
       //type: "POST",
@@ -227,8 +199,11 @@ RecordSelect.Abstract = Class.extend({
       //dataType: options.ajax_data_type,
       success: function(data){
         _this.container.html(data);
-        _this.show();
-        jQuery(document.body).mousedown(jQuery.proxy(_this, "onbodyclick"));
+        if (!_this.container.is(':visible')) _this.close();
+        else {
+          _this.show();
+          jQuery(document.body).mousedown(jQuery.proxy(_this, "onbodyclick"));
+        }
       }
     });
   },
@@ -240,9 +215,13 @@ RecordSelect.Abstract = Class.extend({
     var offset = this.obj.offset(), top = this.obj.height() + offset.top;
     this.container.show();
     this.container.css('left', offset.left);
-    if (top + this.container.height() > jQuery(window).height())
+    if (top + this.container.height() > jQuery(window).height()) {
       this.container.css('bottom', jQuery(window).height() - offset.top);
-    else this.container.css('top', top);
+      this.container.css('top', '');
+    } else {
+      this.container.css('top', top);
+      this.container.css('bottom', '');
+    }
 
     if (this._use_iframe_mask()) {
       this.container.after('<iframe src="javascript:false;" class="record-select-mask" />');
@@ -363,12 +342,15 @@ jQuery.extend(RecordSelect.Abstract.prototype, {
         if (elem) elem.find('a').click();
         break;
       case 27: // Event.KEY_ESC
+      case 9: // Event.KEY_TAB
         this.close();
         break;
       default:
         return true;
     }
-    ev.preventDefault(); // so "enter" doesn't submit the form, among other things(?)
+    if (ev.keyCode != 9) { // don't prevent tabbing
+      ev.preventDefault(); // so "enter" doesn't submit the form, among other things(?)
+    }
   },
 
   /**
@@ -410,9 +392,13 @@ RecordSelect.Dialog = RecordSelect.Abstract.extend({
  */
 RecordSelect.Single = RecordSelect.Abstract.extend({
   onload: function() {
+    var rs = this;
     // initialize the container
     this.container = this.create_container();
     this.container.addClass('record-select-autocomplete');
+    this.container.submit(function() {
+      rs.hidden_input.val('');
+    });
 
     // create the hidden input
     this.obj.after('<input type="hidden" name="" value="" />');
@@ -426,14 +412,7 @@ RecordSelect.Single = RecordSelect.Abstract.extend({
     if (this.options.label) this.set(this.options.id, this.options.label);
 
     this._respond_to_text_field(this.obj);
-    if (this.obj.focused) this.open(); // if it was focused before we could attach observers
-  },
-
-  close: function() {
-    // if they close the dialog with the text field empty, then delete the id value
-    if (this.obj.val() == '') this.set('', '');
-
-    RecordSelect.Abstract.prototype.close.call(this);
+    if (this.obj.prop('focused')) this.open(); // if it was focused before we could attach observers
   },
 
   onselect: function(id, value) {

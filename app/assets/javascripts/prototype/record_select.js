@@ -44,6 +44,11 @@ RecordSelect.notify = function(item) {
   else return true;
 };
 
+RecordSelect.observe = function(id) {
+  var form = $(id);
+  Form.Element.AfterActivity(form.down('input.text-input'), function() { form.down('input.search_submit').click(); }, 0.35);
+}
+
 RecordSelect.render_page = function(record_select_id, page) {
   var page_element = $$('#' + record_select_id + ' ol')[0];
   if (page_element) Element.replace(page_element, page);
@@ -89,14 +94,19 @@ Object.extend(RecordSelect.Abstract.prototype, {
   open: function() {
     if (this.is_open()) return;
 
+    this.container.update('');
+    this.container.show();
     new Ajax.Updater(this.container, this.url, {
       method: 'get',
       evalScripts: true,
       asynchronous: true,
       onComplete: function() {
-        this.show();
         // needs to be mousedown so the event doesn't get canceled by other code (see issue #26)
-        Element.observe(document.body, 'mousedown', this.onbodyclick.bindAsEventListener(this));
+        if (!this.container.visible()) this.close();
+        else {
+          this.show();
+          Element.observe(document.body, 'mousedown', this.onbodyclick.bindAsEventListener(this));
+        }
       }.bind(this)
     });
   },
@@ -109,9 +119,13 @@ Object.extend(RecordSelect.Abstract.prototype, {
         top = Element.getHeight(this.obj) + offset[1],
         window_height = document.viewport.getHeight();
     this.container.style.left = offset[0] + 'px';
-    if (top + Element.getHeight(this.container) > window_height)
+    if (top + Element.getHeight(this.container) > window_height) {
       this.container.style.bottom = (window_height - offset[1]) + 'px';
-    else this.container.style.top = top + 'px';
+      this.container.style.top = '';
+    } else {
+      this.container.style.top = top + 'px';
+      this.container.style.bottom = '';
+    }
 
     if (this._use_iframe_mask()) {
       this.container.insertAdjacentHTML('afterEnd', '<iframe src="javascript:false;" class="record-select-mask" />');
@@ -232,12 +246,15 @@ Object.extend(RecordSelect.Abstract.prototype, {
         if (elem) elem.down('a').onclick();
         break;
       case Event.KEY_ESC:
+      case Event.KEY_TAB:
         this.close();
         break;
       default:
         return;
     }
-    Event.stop(ev); // so "enter" doesn't submit the form, among other things(?)
+    if (ev.keyCode != Event.KEY_TAB) { // don't prevent tabbing
+      Event.stop(ev); // so "enter" doesn't submit the form, among other things(?)
+    }
   },
 
   /**
@@ -285,6 +302,9 @@ RecordSelect.Single.prototype = Object.extend(new RecordSelect.Abstract(), {
     // initialize the container
     this.container = this.create_container();
     this.container.addClassName('record-select-autocomplete');
+    this.container.observe('submit', function() {
+      this.hidden_input.value = '';
+    }.bind(this));
 
     // create the hidden input
     new Insertion.After(this.obj, '<input type="hidden" name="" value="" />')
@@ -299,13 +319,6 @@ RecordSelect.Single.prototype = Object.extend(new RecordSelect.Abstract(), {
 
     this._respond_to_text_field(this.obj);
     if (this.obj.focused) this.open(); // if it was focused before we could attach observers
-  },
-
-  close: function() {
-    // if they close the dialog with the text field empty, then delete the id value
-    if (this.obj.value == '') this.set('', '');
-
-    RecordSelect.Abstract.prototype.close.call(this);
   },
 
   onselect: function(id, value) {
